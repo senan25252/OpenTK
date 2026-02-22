@@ -35,7 +35,7 @@ public class Game : GameWindow
              0.0f,  0.5f, 0.0f  // Üst Orta Köşe (Index 2)
         };
 
-        new MeshRenderer(vertices, indices, "", "");
+        new MeshRenderer("testFrag", "testVert", vertices, indices);
     }
 
     // Runs every frame - put your rendering code here
@@ -90,6 +90,9 @@ public class MeshRenderer : Behaviour
     uint[] indices;
     float[] vertices;
     string fragShaderSource, vertShaderSource;
+
+    int shaderProgram;
+    int fragmentShader, vertexShader;
     public MeshRenderer(float[] vertices, uint[] indices, string fragShaderSource, string vertShaderSource) : base()
     {
         vao = GL.GenVertexArray();
@@ -102,9 +105,53 @@ public class MeshRenderer : Behaviour
         GenerateMesh();
     }
 
+    public MeshRenderer(string fragShaderPath, string vertShaderPath, float[] vertices, uint[] indices) : base()
+    {
+        vao = GL.GenVertexArray();
+        vbo = GL.GenBuffer();
+        ebo = GL.GenBuffer();
+        this.indices = indices;
+        this.vertices = vertices;
+        this.fragShaderSource = "";
+        this.vertShaderSource = "";
+        ReadShaderSources(fragShaderPath, vertShaderPath);
+        GenerateMesh();
+    }
+
+    void ReadShaderSources(string fragShaderPath, string vertShaderPath)
+    {
+        if (File.Exists("Shaders/" + fragShaderPath) && File.Exists("Shaders/" + vertShaderPath))
+        {
+            fragShaderSource = File.ReadAllText("Shaders/" + fragShaderPath);
+            vertShaderSource = File.ReadAllText("Shaders/" + vertShaderPath);
+        }
+        else
+        {
+            throw new Exception("Shader not found");
+        }
+    }
+
     void GenerateMesh()
     {
         GL.BindVertexArray(vao);
+
+        shaderProgram = GL.CreateProgram();
+
+        fragmentShader = GL.CreateShader(ShaderType.FragmentShader);
+        vertexShader = GL.CreateShader(ShaderType.VertexShader);
+
+        GL.ShaderSource(fragmentShader, fragShaderSource);
+        GL.ShaderSource(vertexShader, vertShaderSource);
+
+        GL.CompileShader(vertexShader);
+        GL.CompileShader(fragmentShader);
+
+        GL.AttachShader(shaderProgram, fragmentShader);
+        GL.AttachShader(shaderProgram, vertexShader);
+
+        GL.LinkProgram(shaderProgram);
+
+
 
         GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
         GL.BufferData(BufferTarget.ArrayBuffer, sizeof(float) * vertices.Length, vertices, BufferUsageHint.StaticDraw);
@@ -122,6 +169,7 @@ public class MeshRenderer : Behaviour
     {
         base.Update();
         GL.BindVertexArray(vao);
+        GL.UseProgram(shaderProgram);
         GL.DrawElements(BeginMode.Triangles, indices.Length, DrawElementsType.UnsignedInt, 0);
     }
 }
