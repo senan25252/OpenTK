@@ -31,10 +31,6 @@ namespace Base
             GL.ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
             _controller = new ImGuiController(ClientSize.X, ClientSize.Y);
 
-            // Test için bir obje oluşturuyoruz
-            Renderer r = new Renderer("testFrag", "testVert", "default.obj");
-            GameObject obj = new GameObject("Main Mesh");
-            obj.components.Add(r);
         }
 
         protected override void OnRenderFrame(FrameEventArgs e)
@@ -142,6 +138,7 @@ namespace Base
             }
 
             _controller.Render();
+            Renderer.RenderAllEntites();
             SwapBuffers();
         }
 

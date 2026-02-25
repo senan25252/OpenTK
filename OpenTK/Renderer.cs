@@ -1,125 +1,130 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Globalization;
-using System.Linq; // Önemli: Select ve ToArray için
+﻿using Base.Rendering;
+using ImGuiNET;
 using OpenTK.Graphics.OpenGL4;
+using OpenTK.Windowing.Common;
+using OpenTK.Windowing.Desktop;
+using OpenTK.Windowing.GraphicsLibraryFramework;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Reflection;
 
 namespace Base.Rendering
 {
-    public class Renderer : Behaviour
+    public class Renderer
     {
-        int vao, vbo, ebo, shaderProgram;
-        uint[] indices = Array.Empty<uint>();
-        float[] vertices = Array.Empty<float>();
-
-        string objPath = "default.obj";
-        string fragShaderPath = "testFrag";
-        string vertShaderPath = "testVert";
-
-        public Renderer(string fragPath, string vertPath, string meshPath) : base()
+        public struct vaoContents 
         {
-            this.objPath = meshPath;
-            this.fragShaderPath = fragPath;
-            this.vertShaderPath = vertPath;
-
-            InitializeUI();
-
-            vao = GL.GenVertexArray();
-            vbo = GL.GenBuffer();
-            ebo = GL.GenBuffer();
-
-            ReloadEverything();
+            public int vao;
+            public int vbo;
+            public int ebo;
+            public float[] vertices;
+            public uint[] indices;
+            public int indexCount;
+        }
+        public struct shaderContents
+        {
+            public int shaderProgram;
+            public string vertexSource;
+            public string fragmentSource;
         }
 
-        public Renderer() : base()
+        public struct RenderEntity
         {
-            // Varsayılan değerler
-            this.objPath = "default.obj";
-            this.fragShaderPath = "testFrag";
-            this.vertShaderPath = "testVert";
-
-            InitializeUI();
-
-            vao = GL.GenVertexArray();
-            vbo = GL.GenBuffer();
-            ebo = GL.GenBuffer();
-
-            ReloadEverything();
+            public vaoContents mesh;
+            public int shaderProgram;
         }
 
-        private void InitializeUI()
+        public static List<RenderEntity> renderEntities = new List<RenderEntity>();
+
+        public static void RenderAllEntites()
         {
-            uiElements.Clear();
-
-            // 1. Mesh Path (InputText)
-            uiElements.Add(new ImgUiElement(UiElementType.InputText, "Mesh Path", () => { }) { inputValue = objPath });
-
-            // Shaders klasörünü tara
-            string shaderFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Shaders");
-            string[] shaderFiles = Directory.Exists(shaderFolder)
-                ? Directory.GetFiles(shaderFolder).Select(Path.GetFileName).ToArray()
-                : new string[] { "Klasor Bulunamadi" };
-
-            // 2. Fragment Shader (DropDown)
-            var fragDrop = new ImgUiElement(UiElementType.DropDown, "Frag Shader", () => { });
-            fragDrop.options = shaderFiles;
-            fragDrop.selectedIndex = Math.Max(0, Array.IndexOf(shaderFiles, fragShaderPath));
-            fragDrop.inputValue = fragShaderPath;
-            uiElements.Add(fragDrop);
-
-            // 3. Vertex Shader (DropDown)
-            var vertDrop = new ImgUiElement(UiElementType.DropDown, "Vert Shader", () => { });
-            vertDrop.options = shaderFiles;
-            vertDrop.selectedIndex = Math.Max(0, Array.IndexOf(shaderFiles, vertShaderPath));
-            vertDrop.inputValue = vertShaderPath;
-            uiElements.Add(vertDrop);
-        }
-
-        public override void Update()
-        {
-            // UI'dan gelen değişiklikleri kontrol et ve uygula
-            if (uiElements[0].inputValue != objPath)
+            foreach (RenderEntity entity in renderEntities)
             {
-                objPath = uiElements[0].inputValue;
-                LoadObj(objPath, out vertices, out indices);
-                GenerateMesh();
-            }
-
-            if (uiElements[1].inputValue != fragShaderPath || uiElements[2].inputValue != vertShaderPath)
-            {
-                fragShaderPath = uiElements[1].inputValue;
-                vertShaderPath = uiElements[2].inputValue;
-                ReloadShader();
-            }
-
-            // Çizim işlemi
-            if (indices.Length > 0 && shaderProgram > 0)
-            {
-                GL.UseProgram(shaderProgram);
-                GL.BindVertexArray(vao);
-                GL.DrawElements(PrimitiveType.Triangles, indices.Length, DrawElementsType.UnsignedInt, IntPtr.Zero);
+                GL.BindVertexArray(entity.mesh.vao);
+                GL.UseProgram(entity.shaderProgram);
+                GL.DrawElements(PrimitiveType.Triangles, entity.mesh.indexCount, DrawElementsType.UnsignedInt, 0);
             }
         }
 
-        private void ReloadEverything()
+        public static void ChangeShader(ref RenderEntity entity, string vertexSource, string fragmentSource)
+        {
+            Console.WriteLine("Change Shader Requseted Sender");
+            entity.shaderProgram = Renderer.CompileCustomShader(vertexSource, fragmentSource);
+        }
+
+        public static RenderEntity GenerateMesh(float[] vertices, uint[] indices, shaderContents shader)
+        {
+            if (vertices.Length == 0) throw new Exception("GenerateMesh verices was empty");
+            int program = Renderer.CompileCustomShader(shader.vertexSource, shader.fragmentSource);
+            vaoContents contents = new vaoContents();
+            contents.vao = GL.GenVertexArray();
+            contents.vbo = GL.GenBuffer();
+            contents.ebo = GL.GenBuffer();
+            contents.indexCount = indices.Length;
+            GL.BindVertexArray(contents.vao);
+            GL.BindBuffer(BufferTarget.ArrayBuffer, contents.vbo);
+            GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
+            GL.BindBuffer(BufferTarget.ElementArrayBuffer, contents.ebo);
+            GL.BufferData(BufferTarget.ElementArrayBuffer, indices.Length * sizeof(uint), indices, BufferUsageHint.StaticDraw);
+            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
+            GL.EnableVertexAttribArray(0);
+            RenderEntity entity = new RenderEntity() { mesh = contents, shaderProgram = program };
+            renderEntities.Add(entity);
+
+            return entity;
+        }
+
+        public static int CompileCustomShader(string vSource, string fSource)
+        {
+            Console.WriteLine("Compile Shader Requseted");
+            Console.WriteLine("Vertex Source: " + vSource);
+            Console.WriteLine("Fragment Source: " + fSource);
+            int v = GL.CreateShader(ShaderType.VertexShader); GL.ShaderSource(v, vSource); GL.CompileShader(v);
+            int f = GL.CreateShader(ShaderType.FragmentShader); GL.ShaderSource(f, fSource); GL.CompileShader(f);
+            int prog = GL.CreateProgram();
+            GL.AttachShader(prog, v); GL.AttachShader(prog, f);
+            GL.LinkProgram(prog);
+            GL.DeleteShader(v); GL.DeleteShader(f);
+            return prog;
+        }
+
+        public static void DeleteEntity(RenderEntity entity)
+        {
+            // Listeden çıkar
+            renderEntities.Remove(entity);
+
+            // GPU belleğinden sil
+            GL.DeleteBuffer(entity.mesh.vbo);
+            GL.DeleteBuffer(entity.mesh.ebo);
+            GL.DeleteVertexArray(entity.mesh.vao);
+            GL.DeleteProgram(entity.shaderProgram);
+        }
+
+        public static void ReloadEverything(ref RenderEntity entity, string vertShaderPath, string fragShaderPath, string objPath)
         {
             try
             {
-                LoadObj(objPath, out vertices, out indices);
-                GenerateMesh();
-                ReloadShader();
+                Renderer.LoadObj(objPath, out entity.mesh.vertices, out entity.mesh.indices);
+                Renderer.shaderContents shader = new Renderer.shaderContents
+                {
+                    vertexSource = File.ReadAllText(Path.Combine("Shaders", vertShaderPath)),
+                    fragmentSource = File.ReadAllText(Path.Combine("Shaders", fragShaderPath))
+                };
+                entity = Renderer.GenerateMesh(entity.mesh.vertices, entity.mesh.indices, shader);
+                ReloadShader(vertShaderPath, fragShaderPath, shader);
             }
             catch (Exception e) { Console.WriteLine("Hata: " + e.Message); }
         }
 
-        private void ReloadShader()
+        public static void ReloadShader(string vertShaderPath, string fragShaderPath, shaderContents shader)
         {
             try
             {
                 string vSrc = File.ReadAllText(Path.Combine("Shaders", vertShaderPath));
                 string fSrc = File.ReadAllText(Path.Combine("Shaders", fragShaderPath));
-                shaderProgram = CompileCustomShader(vSrc, fSrc);
+                shader.shaderProgram = Renderer.CompileCustomShader(vSrc, fSrc);
             }
             catch { /* Dosya okuma hatası */ }
         }
@@ -149,29 +154,6 @@ namespace Base.Rendering
             }
             outVertices = vList.ToArray();
             outIndices = iList.ToArray();
-        }
-
-        void GenerateMesh()
-        {
-            if (vertices.Length == 0) return;
-            GL.BindVertexArray(vao);
-            GL.BindBuffer(BufferTarget.ArrayBuffer, vbo);
-            GL.BufferData(BufferTarget.ArrayBuffer, vertices.Length * sizeof(float), vertices, BufferUsageHint.StaticDraw);
-            GL.BindBuffer(BufferTarget.ElementArrayBuffer, ebo);
-            GL.BufferData(BufferTarget.ElementArrayBuffer, indices.Length * sizeof(uint), indices, BufferUsageHint.StaticDraw);
-            GL.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, 3 * sizeof(float), 0);
-            GL.EnableVertexAttribArray(0);
-        }
-
-        int CompileCustomShader(string vSource, string fSource)
-        {
-            int v = GL.CreateShader(ShaderType.VertexShader); GL.ShaderSource(v, vSource); GL.CompileShader(v);
-            int f = GL.CreateShader(ShaderType.FragmentShader); GL.ShaderSource(f, fSource); GL.CompileShader(f);
-            int prog = GL.CreateProgram();
-            GL.AttachShader(prog, v); GL.AttachShader(prog, f);
-            GL.LinkProgram(prog);
-            GL.DeleteShader(v); GL.DeleteShader(f);
-            return prog;
         }
     }
 }
