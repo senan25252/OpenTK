@@ -78,9 +78,6 @@ namespace Base.Rendering
 
         public static int CompileCustomShader(string vSource, string fSource)
         {
-            Console.WriteLine("Compile Shader Requseted");
-            Console.WriteLine("Vertex Source: " + vSource);
-            Console.WriteLine("Fragment Source: " + fSource);
             int v = GL.CreateShader(ShaderType.VertexShader); GL.ShaderSource(v, vSource); GL.CompileShader(v);
             int f = GL.CreateShader(ShaderType.FragmentShader); GL.ShaderSource(f, fSource); GL.CompileShader(f);
             int prog = GL.CreateProgram();
@@ -115,7 +112,7 @@ namespace Base.Rendering
                 entity = Renderer.GenerateMesh(entity.mesh.vertices, entity.mesh.indices, shader);
                 ReloadShader(vertShaderPath, fragShaderPath, shader);
             }
-            catch (Exception e) { Console.WriteLine("Hata: " + e.Message); }
+            catch (Exception e) { Console.WriteLine("ERROR: " + e.Message); }
         }
 
         public static void ReloadShader(string vertShaderPath, string fragShaderPath, shaderContents shader)

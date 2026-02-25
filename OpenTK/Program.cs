@@ -30,8 +30,10 @@ namespace Base
             base.OnLoad();
             GL.ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
             _controller = new ImGuiController(ClientSize.X, ClientSize.Y);
-
+            foreach(GameObject go in GameObject.gameObjects) go.OnEngineStart();
         }
+
+
 
         protected override void OnRenderFrame(FrameEventArgs e)
         {
@@ -39,6 +41,8 @@ namespace Base
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit);
 
             _controller.Update(this, (float)e.Time);
+
+            Renderer.RenderAllEntites();
 
             if (ImGui.Begin("Game Objects"))
             {
@@ -69,24 +73,50 @@ namespace Base
                                     switch (ui.type)
                                     {
                                         case UiElementType.Button:
-                                            if (ImGui.Button(uniqueLabel)) ui.Interaction?.Invoke();
+                                            if (ImGui.Button(uniqueLabel))
+                                            {
+                                                // Field'dan Action nesnesini al
+                                                Action action = (Action)ui.targetField?.GetValue(ui.targetObject);
+
+                                                // Eğer içine bir metod atanmışsa çalıştır
+                                                action?.Invoke();
+
+                                                // Varsa özel etkileşim delegate'ini de çalıştır
+                                                ui.Interaction?.Invoke();
+                                            }
                                             break;
                                         case UiElementType.Text:
                                             ImGui.Text(ui.content);
                                             break;
-                                        case UiElementType.CheckBox:
-                                            if (ImGui.Checkbox(uniqueLabel, ref ui.c)) ui.Interaction?.Invoke();
-                                            break;
                                         case UiElementType.InputText:
-                                            if (ImGui.InputText(uniqueLabel, ref ui.inputValue, 100)) ui.Interaction?.Invoke();
-                                            break;
-                                        case UiElementType.DropDown:
-                                            if (ImGui.Combo(uniqueLabel, ref ui.selectedIndex, ui.options, ui.options.Length))
+                                            if (ImGui.InputText(uniqueLabel, ref ui.inputValue, 100))
                                             {
-                                                ui.inputValue = ui.options[ui.selectedIndex];
+                                                // UI'daki değişim anında sınıftaki gerçek değişkene (objPath vb.) yazılır
+                                                ui.targetField?.SetValue(ui.targetObject, ui.inputValue);
                                                 ui.Interaction?.Invoke();
                                             }
                                             break;
+
+                                        case UiElementType.CheckBox:
+                                            if (ImGui.Checkbox(uniqueLabel, ref ui.c))
+                                            {
+                                                ui.targetField?.SetValue(ui.targetObject, ui.c);
+                                                ui.Interaction?.Invoke();
+                                            }
+                                            break;
+                                        case UiElementType.DropDown:
+                                            // Benzersiz ID için içeriği ve Hash'i kullan
+                                            if (ImGui.Combo(uniqueLabel, ref ui.selectedIndex, ui.options, ui.options.Length))
+                                            {
+                                                // Seçilen değeri değişkene yaz
+                                                string selectedValue = ui.options[ui.selectedIndex];
+                                                ui.targetField?.SetValue(ui.targetObject, selectedValue);
+                                                ui.inputValue = selectedValue; // Senkronizasyon için
+
+                                                ui.Interaction?.Invoke();
+                                            }
+                                            break;
+                                            
                                     }
                                 }
                             }
@@ -115,7 +145,7 @@ namespace Base
                                 {
                                     // 2. Seçilen sınıftan çalışma zamanında bir örnek (Instance) oluşturur
                                     Behaviour newComp = (Behaviour)Activator.CreateInstance(type);
-                                    b.components.Add(newComp);
+                                    b.AddComponent(newComp);
 
                                     ImGui.CloseCurrentPopup();
                                 }
@@ -138,14 +168,25 @@ namespace Base
             }
 
             _controller.Render();
-            Renderer.RenderAllEntites();
             SwapBuffers();
         }
 
         // --- Diğer Eventler ---
         protected override void OnKeyDown(KeyboardKeyEventArgs e) { base.OnKeyDown(e); _controller.OnKeyDown(e.Key, true, e.Shift, e.Control, e.Alt); }
         protected override void OnKeyUp(KeyboardKeyEventArgs e) { base.OnKeyUp(e); _controller.OnKeyDown(e.Key, false, e.Shift, e.Control, e.Alt); }
-        protected override void OnResize(ResizeEventArgs e) { base.OnResize(e); _controller.WindowResized(ClientSize.X, ClientSize.Y); }
+        protected override void OnResize(ResizeEventArgs e)
+        {
+            base.OnResize(e);
+
+            // 1. OpenGL çizim alanını yeni boyuta göre ayarla
+            GL.Viewport(0, 0, ClientSize.X, ClientSize.Y);
+
+            // 2. ImGui kontrolcüsüne yeni boyutları bildir
+            _controller.WindowResized(ClientSize.X, ClientSize.Y);
+
+            // Not: Bazı ImGuiController sürümlerinde bu metod DisplaySize 
+            // veya WindowResized olarak geçer. Parametrelerin doğruluğundan emin ol.
+        }
         protected override void OnTextInput(TextInputEventArgs e) { base.OnTextInput(e); _controller.PressChar((char)e.Unicode); }
         protected override void OnMouseWheel(MouseWheelEventArgs e) { base.OnMouseWheel(e); _controller.MouseScroll(e.Offset); }
         protected override void OnUnload() { base.OnUnload(); _controller.Dispose(); }
@@ -159,25 +200,103 @@ namespace Base
         public string name = "GameObject";
         public GameObject(string name = "GameObject") { this.name = name; gameObjects.Add(this); }
         public void StepUpdate() { foreach (Behaviour b in components) if (b.enabled) b.Update(); }
+        public void OnEngineStart() { foreach (Behaviour b in components) b.OnEngineStart(); }
+        public void AddComponent(Behaviour b) { components.Add(b); b.InitUI(); }
     }
 
     public class Behaviour
     {
         public bool enabled = true;
         public List<ImgUiElement> uiElements = new List<ImgUiElement>();
-        public virtual void Update() { }
+        public virtual void Update() 
+        {
+            
+        }
+
+        public virtual void OnEngineStart()
+        {
+
+        }
+
+        public void InitUI()
+        {
+            var fields = this.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance);
+            foreach (var field in fields)
+            {
+                // Eğer zaten eklenmişse mükerrer kayıt yapma
+                if (uiElements.Any(x => x.targetField == field)) continue;
+
+                string label = field.Name;
+
+                // --- ÖZEL DURUM: Shader ve Mesh Seçimi (DropDown) ---
+                if (field.Name.Contains("ShaderPath") || field.Name.Contains("objPath"))
+                {
+                    Console.WriteLine("WARNING: Specific situation detected if you dont want this to happen please rename the object something diffrent from (shaderPath, objPath)");
+                    var drop = new ImgUiElement(UiElementType.DropDown, label, this, field);
+
+                    // Klasör tarama mantığını buraya veya bir yardımcı metoda alıyoruz
+                    string folder = field.Name.Contains("obj") ? "Meshes" : "Shaders";
+                    string fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, folder);
+
+                    if (Directory.Exists(fullPath))
+                    {
+                        drop.options = Directory.GetFiles(fullPath).Select(Path.GetFileName).ToArray();
+                        drop.selectedIndex = Math.Max(0, Array.IndexOf(drop.options, field.GetValue(this).ToString()));
+                    }
+                    else
+                    {
+                        drop.options = new string[] { "Klasör Bulunamadı" };
+                    }
+
+                    uiElements.Add(drop);
+                }
+                // --- Standart Tipler ---
+                else if (field.FieldType == typeof(bool))
+                {
+                    uiElements.Add(new ImgUiElement(UiElementType.CheckBox, label, this, field));
+                }
+                else if (field.FieldType == typeof(string))
+                {
+                    uiElements.Add(new ImgUiElement(UiElementType.InputText, label, this, field));
+                }
+                else if (field.FieldType == typeof(Action))
+                {
+                    uiElements.Add(new ImgUiElement(UiElementType.Button, label, this, field));
+                }
+            }
+        }
     }
 
     public class ImgUiElement
     {
-        public ImgUiElement(UiElementType type, string content, Action act) { this.type = type; this.content = content; this.Interaction = act; }
         public UiElementType type;
         public string content;
         public Action Interaction;
+
+        // Referans takibi için eklenenler:
+        public FieldInfo targetField;
+        public object targetObject;
+
         public bool c;
         public string inputValue = "";
-        public string[] options; // Dropdown seçenekleri
-        public int selectedIndex = 0; // Seçili index
+        public string[] options;
+        public int selectedIndex = 0;
+
+        public ImgUiElement(UiElementType type, string content, object target, FieldInfo field)
+        {
+            this.type = type;
+            this.content = content;
+            this.targetObject = target;
+            this.targetField = field;
+
+            // Değişkenin başlangıç değerini al
+            if (field != null)
+            {
+                var val = field.GetValue(target);
+                if (type == UiElementType.InputText) inputValue = val?.ToString() ?? "";
+                if (type == UiElementType.CheckBox) c = (bool)val;
+            }
+        }
     }
 
     public enum UiElementType { Button, Text, CheckBox, InputText, DropDown }
