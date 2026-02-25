@@ -15,6 +15,21 @@ public class TestScript2 : Behaviour
 
     public override void Update()
     {
-    
+        if(Input.GetKey(OpenTK.Windowing.GraphicsLibraryFramework.Keys.D))
+        {
+            gameObject.transform.position.X += 1f * (float)Game.Instance.UpdateTime;
+        }
+        if (Input.GetKey(OpenTK.Windowing.GraphicsLibraryFramework.Keys.A))
+        {
+            gameObject.transform.position.X -= 1f * (float)Game.Instance.UpdateTime;
+        }
+        if (Input.GetKey(OpenTK.Windowing.GraphicsLibraryFramework.Keys.W))
+        {
+            gameObject.transform.position.Y += 1f * (float)Game.Instance.UpdateTime;
+        }
+        if (Input.GetKey(OpenTK.Windowing.GraphicsLibraryFramework.Keys.S))
+        {
+            gameObject.transform.position.Y -= 1f * (float)Game.Instance.UpdateTime;
+        }
     }
 }

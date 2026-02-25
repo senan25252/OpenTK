@@ -18,6 +18,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="glm" Version="1.0.3" />
+    <PackageReference Include="GlmSharp" Version="0.9.8" />
     <PackageReference Include="ImGui.NET" Version="1.91.6.1" />
     <PackageReference Include="OpenTK.Core" Version="4.9.4" />
     <PackageReference Include="OpenTK.Graphics" Version="4.9.4" />

@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Linq;
 using System.Collections.Generic;
 using System;
+using GlmSharp;
 
 using (Base.Game game = new Base.Game(800, 600, "LearnOpenTK"))
 {
@@ -19,15 +20,18 @@ namespace Base
     public class Game : GameWindow
     {
         private ImGuiController _controller;
+        public static Game Instance { get; private set; }
 
         public Game(int width, int height, string title)
             : base(GameWindowSettings.Default, new NativeWindowSettings() { Size = (width, height), Title = title })
         {
+            Instance = this;
         }
 
         protected override void OnLoad()
         {
             base.OnLoad();
+            GL.Enable(EnableCap.DepthTest);
             GL.ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
             _controller = new ImGuiController(ClientSize.X, ClientSize.Y);
             foreach(GameObject go in GameObject.gameObjects) go.OnEngineStart();
@@ -116,7 +120,35 @@ namespace Base
                                                 ui.Interaction?.Invoke();
                                             }
                                             break;
-                                            
+                                        case UiElementType.Vec3:
+                                            // --- SYNC: Nesnedeki güncel değeri UI elementine çek ---
+                                            var currentVal = ui.targetField.GetValue(ui.targetObject);
+                                            if (ui.targetField.FieldType == typeof(OpenTK.Mathematics.Vector3))
+                                            {
+                                                var v = (OpenTK.Mathematics.Vector3)currentVal;
+                                                ui.vec3Value = new System.Numerics.Vector3(v.X, v.Y, v.Z);
+                                            }
+                                            else
+                                            {
+                                                ui.vec3Value = (System.Numerics.Vector3)currentVal;
+                                            }
+
+                                            // --- RENDER & INPUT ---
+                                            if (ImGui.DragFloat3(uniqueLabel, ref ui.vec3Value, 0.1f))
+                                            {
+                                                // UI'dan bir değişiklik yapılırsa nesneye geri yaz
+                                                if (ui.targetField.FieldType == typeof(OpenTK.Mathematics.Vector3))
+                                                {
+                                                    ui.targetField.SetValue(ui.targetObject, new OpenTK.Mathematics.Vector3(ui.vec3Value.X, ui.vec3Value.Y, ui.vec3Value.Z));
+                                                }
+                                                else
+                                                {
+                                                    ui.targetField.SetValue(ui.targetObject, ui.vec3Value);
+                                                }
+                                                ui.Interaction?.Invoke();
+                                            }
+                                            break;
+
                                     }
                                 }
                             }
@@ -198,16 +230,31 @@ namespace Base
         public static List<GameObject> gameObjects = new List<GameObject>();
         public List<Behaviour> components = new List<Behaviour>();
         public string name = "GameObject";
-        public GameObject(string name = "GameObject") { this.name = name; gameObjects.Add(this); }
+        public Transform transform;
+        public GameObject(string name = "GameObject") {
+            Transform transform = new Transform();
+            AddComponent(transform);
+            this.transform = transform;
+            this.name = name; gameObjects.Add(this);
+        }
         public void StepUpdate() { foreach (Behaviour b in components) if (b.enabled) b.Update(); }
         public void OnEngineStart() { foreach (Behaviour b in components) b.OnEngineStart(); }
-        public void AddComponent(Behaviour b) { components.Add(b); b.InitUI(); }
+        public void AddComponent(Behaviour b) { components.Add(b); b.InitUI(); b.gameObject = this; }
     }
+
 
     public class Behaviour
     {
         public bool enabled = true;
         public List<ImgUiElement> uiElements = new List<ImgUiElement>();
+        public GameObject gameObject;
+
+        public Behaviour()
+        {
+            InitUI();
+        }
+
+
         public virtual void Update() 
         {
             
@@ -263,6 +310,10 @@ namespace Base
                 {
                     uiElements.Add(new ImgUiElement(UiElementType.Button, label, this, field));
                 }
+                else if (field.FieldType == typeof(System.Numerics.Vector3) || field.FieldType == typeof(OpenTK.Mathematics.Vector3))
+                {
+                    uiElements.Add(new ImgUiElement(UiElementType.Vec3, field.Name, this, field));
+                }
             }
         }
     }
@@ -282,6 +333,8 @@ namespace Base
         public string[] options;
         public int selectedIndex = 0;
 
+        public System.Numerics.Vector3 vec3Value; // Vector3 değerini tutmak için
+
         public ImgUiElement(UiElementType type, string content, object target, FieldInfo field)
         {
             this.type = type;
@@ -289,15 +342,20 @@ namespace Base
             this.targetObject = target;
             this.targetField = field;
 
-            // Değişkenin başlangıç değerini al
             if (field != null)
             {
                 var val = field.GetValue(target);
-                if (type == UiElementType.InputText) inputValue = val?.ToString() ?? "";
-                if (type == UiElementType.CheckBox) c = (bool)val;
+                // ... diğer kontroller ...
+                if (field.FieldType == typeof(System.Numerics.Vector3))
+                    vec3Value = (System.Numerics.Vector3)val;
+                else if (field.FieldType == typeof(OpenTK.Mathematics.Vector3))
+                {
+                    var v = (OpenTK.Mathematics.Vector3)val;
+                    vec3Value = new System.Numerics.Vector3(v.X, v.Y, v.Z);
+                }
             }
         }
     }
 
-    public enum UiElementType { Button, Text, CheckBox, InputText, DropDown }
+    public enum UiElementType { Button, Text, CheckBox, InputText, DropDown, Vec3 }
 }
